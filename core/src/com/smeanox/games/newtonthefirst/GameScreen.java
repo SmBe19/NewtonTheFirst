@@ -1,20 +1,26 @@
 package com.smeanox.games.newtonthefirst;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.graphics.Camera;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.physics.box2d.Body;
 import com.badlogic.gdx.physics.box2d.BodyDef;
 import com.badlogic.gdx.physics.box2d.Box2D;
 import com.badlogic.gdx.physics.box2d.Box2DDebugRenderer;
 import com.badlogic.gdx.physics.box2d.CircleShape;
+import com.badlogic.gdx.physics.box2d.Contact;
+import com.badlogic.gdx.physics.box2d.ContactImpulse;
+import com.badlogic.gdx.physics.box2d.ContactListener;
 import com.badlogic.gdx.physics.box2d.Fixture;
 import com.badlogic.gdx.physics.box2d.FixtureDef;
+import com.badlogic.gdx.physics.box2d.Manifold;
 import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.badlogic.gdx.physics.box2d.World;
 import com.badlogic.gdx.physics.box2d.joints.DistanceJoint;
@@ -35,12 +41,18 @@ public class GameScreen implements Screen {
 
 	World world;
 	Box2DDebugRenderer debugRenderer;
+	Body heroBody;
+	Body groundBody;
+	Body enemyBody;
+
+	private int numHeroFootContacts = 0;
 
 	private float accumulator = 0;
 
 	public GameScreen(){
 		batch = new SpriteBatch();
-		camera = new OrthographicCamera(1000, 700);
+		camera = new OrthographicCamera(40, 30);
+		//camera = new OrthographicCamera(30, 20);
 		img = new Texture("hero.png");
 
 		Box2D.init();
@@ -51,6 +63,85 @@ public class GameScreen implements Screen {
 	}
 
 	private void initPhysics(){
+		BodyDef bodyDef = new BodyDef();
+		bodyDef.type = BodyDef.BodyType.DynamicBody;
+		bodyDef.position.set(0, 0);
+
+		heroBody = world.createBody(bodyDef);
+
+		PolygonShape polygonShape = new PolygonShape();
+		polygonShape.setAsBox(0.5f, 1);
+
+		FixtureDef fixtureDef = new FixtureDef();
+		fixtureDef.shape = polygonShape;
+		fixtureDef.density = 1;
+		fixtureDef.friction = 0.25f;
+		fixtureDef.restitution = 0.25f;
+		heroBody.createFixture(fixtureDef);
+
+		FixtureDef sensorFixtureDef = new FixtureDef();
+		polygonShape.setAsBox(0.4f, 0.25f, new Vector2(0, -1.25f), 0);
+		sensorFixtureDef.shape = polygonShape;
+		sensorFixtureDef.isSensor = true;
+		Fixture footFixture = heroBody.createFixture(sensorFixtureDef);
+		footFixture.setUserData(1);
+
+		bodyDef = new BodyDef();
+		bodyDef.type = BodyDef.BodyType.StaticBody;
+		bodyDef.position.set(0, 0);
+
+		groundBody = world.createBody(bodyDef);
+
+		fixtureDef.shape = polygonShape;
+		fixtureDef.density = 1;
+		fixtureDef.friction = 0.5f;
+		fixtureDef.restitution = 1;
+		polygonShape.setAsBox(0.5f, 10, new Vector2(-15, 0), 0);
+		groundBody.createFixture(fixtureDef);
+		polygonShape.setAsBox(0.5f, 10, new Vector2(15, 0), 0);
+		groundBody.createFixture(fixtureDef);
+		fixtureDef.restitution = 0;
+		polygonShape.setAsBox(15, 0.5f, new Vector2(0, -10), 0);
+		groundBody.createFixture(fixtureDef);
+
+		enemyBody = world.createBody(bodyDef);
+		polygonShape.setAsBox(0.5f, 0.5f, new Vector2(10, 0), 0);
+		enemyBody.createFixture(fixtureDef);
+
+		polygonShape.dispose();
+
+		world.setContactListener(new ContactListener() {
+			@Override
+			public void beginContact(Contact contact) {
+				Object uA = contact.getFixtureA().getUserData();
+				Object uB = contact.getFixtureB().getUserData();
+				if(uA != null && 1 == ((Integer) uA) || uB != null && 1 == ((Integer) uB)){
+					numHeroFootContacts++;
+				}
+			}
+
+			@Override
+			public void endContact(Contact contact) {
+				Object uA = contact.getFixtureA().getUserData();
+				Object uB = contact.getFixtureB().getUserData();
+				if(uA != null && 1 == ((Integer) uA) || uB != null && 1 == ((Integer) uB)){
+					numHeroFootContacts--;
+				}
+			}
+
+			@Override
+			public void preSolve(Contact contact, Manifold oldManifold) {
+
+			}
+
+			@Override
+			public void postSolve(Contact contact, ContactImpulse impulse) {
+
+			}
+		});
+	}
+
+	private void initPhysicsOld(){
 		BodyDef bodyDef = new BodyDef();
 		bodyDef.type = BodyDef.BodyType.DynamicBody;
 		bodyDef.position.set(100, 300);
@@ -118,11 +209,14 @@ public class GameScreen implements Screen {
 		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
 		debugRenderer.render(world, camera.combined);
+		batch.setProjectionMatrix(camera.combined);
 
 		batch.begin();
-		batch.draw(img, 0, 0);
+		batch.draw(img, heroBody.getPosition().x - 0.5f, heroBody.getPosition().y - 1, 0.5f, 1, 1, 2, 1, 1,
+				heroBody.getAngle() * MathUtils.radiansToDegrees, 0, 0, img.getWidth(), img.getHeight(), false, false);
 		batch.end();
 
+		updateInput(delta);
 		doPhysicsStep(delta);
 	}
 
@@ -134,6 +228,23 @@ public class GameScreen implements Screen {
 		while (accumulator >= PHYSICS_TIME_STEP) {
 			world.step(PHYSICS_TIME_STEP, VELOCITY_ITERATIONS, POSITION_ITERATIONS);
 			accumulator -= PHYSICS_TIME_STEP;
+		}
+	}
+
+	private void updateInput(float delta){
+		float destX = heroBody.getLinearVelocity().x;
+		if(Gdx.input.isKeyPressed(Input.Keys.D)){
+			destX = 10;
+		}
+		if(Gdx.input.isKeyPressed(Input.Keys.A)){
+			destX = -10;
+		}
+		heroBody.applyLinearImpulse(new Vector2(heroBody.getMass() * (destX - heroBody.getLinearVelocity().x), 0), heroBody.getPosition(), true);
+		if(Gdx.input.isKeyPressed(Input.Keys.W) && numHeroFootContacts > 0){
+			heroBody.applyLinearImpulse(new Vector2(0, heroBody.getMass() * 2), heroBody.getPosition(), true);
+		}
+		if(Gdx.input.isKeyPressed(Input.Keys.SPACE)){
+			heroBody.applyTorque(((0 - heroBody.getAngle())%MathUtils.PI2) * 20, true);
 		}
 	}
 
